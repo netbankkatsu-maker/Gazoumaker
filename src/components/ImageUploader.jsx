@@ -7,7 +7,18 @@ export default function ImageUploader({ image, onImageChange }) {
   function handleFile(file) {
     if (!file || !file.type.startsWith('image/')) return
     const reader = new FileReader()
-    reader.onload = (e) => onImageChange(e.target.result)
+    reader.onload = (e) => {
+      const dataUrl = e.target.result
+      const img = new Image()
+      img.onload = () => {
+        onImageChange({
+          dataUrl,
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+        })
+      }
+      img.src = dataUrl
+    }
     reader.readAsDataURL(file)
   }
 
@@ -42,6 +53,8 @@ export default function ImageUploader({ image, onImageChange }) {
     if (inputRef.current) inputRef.current.value = ''
   }
 
+  const preview = image?.dataUrl
+
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-gray-400">
@@ -56,17 +69,17 @@ export default function ImageUploader({ image, onImageChange }) {
           relative cursor-pointer rounded-xl border-2 border-dashed transition-all duration-200
           ${isDragging
             ? 'border-accent bg-accent/10'
-            : image
+            : preview
               ? 'border-dark-500 bg-dark-700'
               : 'border-dark-500 bg-dark-700 hover:border-accent/50 hover:bg-dark-600'
           }
-          ${image ? 'p-2' : 'p-8'}
+          ${preview ? 'p-2' : 'p-8'}
         `}
       >
-        {image ? (
+        {preview ? (
           <div className="relative">
             <img
-              src={image}
+              src={preview}
               alt="アップロード画像"
               className="w-full rounded-lg object-contain max-h-64"
             />
@@ -76,6 +89,9 @@ export default function ImageUploader({ image, onImageChange }) {
             >
               ✕
             </button>
+            <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded">
+              {image.width} × {image.height}
+            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3 text-gray-400">

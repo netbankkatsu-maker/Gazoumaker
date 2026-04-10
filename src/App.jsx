@@ -2,35 +2,35 @@ import { useState, useEffect } from 'react'
 import ImageUploader from './components/ImageUploader'
 import PromptInput from './components/PromptInput'
 import ApiSettings from './components/ApiSettings'
+import ParameterSettings from './components/ParameterSettings'
 import GenerateButton from './components/GenerateButton'
 import ResultView from './components/ResultView'
 import ErrorMessage from './components/ErrorMessage'
 
 const DEFAULT_PROMPT = 'highly detailed artistic style, beautiful lighting, masterpiece'
+const DEFAULT_NEGATIVE = 'blurry, low quality, deformed, ugly, bad anatomy, disfigured'
 
-function generateMockImage(sourceImage) {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      canvas.width = img.width
-      canvas.height = img.height
-      const ctx = canvas.getContext('2d')
+const DEFAULT_PARAMS = {
+  denoisingStrength: 0.65,
+  steps: 30,
+  negativePrompt: DEFAULT_NEGATIVE,
+  sizeMode: '512', // 'original' | '512' | '768'
+}
 
-      ctx.filter = 'saturate(1.5) contrast(1.2) hue-rotate(30deg)'
-      ctx.drawImage(img, 0, 0)
+function stripDataUrlPrefix(dataUrl) {
+  const idx = dataUrl.indexOf(',')
+  return idx !== -1 ? dataUrl.substring(idx + 1) : dataUrl
+}
 
-      ctx.globalCompositeOperation = 'overlay'
-      const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height)
-      gradient.addColorStop(0, 'rgba(139, 92, 246, 0.2)')
-      gradient.addColorStop(1, 'rgba(236, 72, 153, 0.2)')
-      ctx.fillStyle = gradient
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-      resolve(canvas.toDataURL('image/png'))
-    }
-    img.src = sourceImage
-  })
+function computeSize(image, sizeMode) {
+  if (sizeMode === 'original' && image) {
+    // A1111 requires multiples of 8
+    const w = Math.round(image.width / 8) * 8
+    const h = Math.round(image.height / 8) * 8
+    return { width: Math.min(w, 1024), height: Math.min(h, 1024) }
+  }
+  const size = sizeMode === '768' ? 768 : 512
+  return { width: size, height: size }
 }
 
 export default function App() {
@@ -38,6 +38,14 @@ export default function App() {
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT)
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('gazou_api_url') || '')
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gazou_api_key') || '')
+  const [params, setParams] = useState(() => {
+    try {
+      const saved = localStorage.getItem('gazou_params')
+      return saved ? { ...DEFAULT_PARAMS, ...JSON.parse(saved) } : DEFAULT_PARAMS
+    } catch {
+      return DEFAULT_PARAMS
+    }
+  })
   const [isLoading, setIsLoading] = useState(false)
   const [resultImage, setResultImage] = useState(null)
   const [error, setError] = useState(null)
@@ -50,6 +58,10 @@ export default function App() {
     localStorage.setItem('gazou_api_key', apiKey)
   }, [apiKey])
 
+  useEffect(() => {
+    localStorage.setItem('gazou_params', JSON.stringify(params))
+  }, [params])
+
   async function handleGenerate() {
     setError(null)
     setResultImage(null)
@@ -59,15 +71,77 @@ export default function App() {
       return
     }
 
+    if (!apiUrl.trim()) {
+      setError('API設定でRunPodのベースURLを入力してください。')
+      return
+    }
+
     setIsLoading(true)
 
     try {
-      // モック: 2秒待ってから加工した画像を返す
-      await new Promise((r) => setTimeout(r, 2000))
-      const mock = await generateMockImage(image)
-      setResultImage(mock)
-    } catch {
-      setError('画像の生成中にエラーが発生しました。')
+      const base64Image = stripDataUrlPrefix(image.dataUrl)
+      const { width, height } = computeSize(image, params.sizeMode)
+
+      const baseUrl = apiUrl.trim().replace(/\/+$/, '')
+      const endpoint = `${baseUrl}/sdapi/v1/img2img`
+
+      const payload = {
+        init_images: [base64Image],
+        prompt,
+        negative_prompt: params.negativePrompt,
+        steps: params.steps,
+        denoising_strength: params.denoisingStrength,
+        width,
+        height,
+        sampler_name: 'DPM++ 2M Karras',
+        cfg_scale: 7,
+      }
+
+      const headers = { 'Content-Type': 'application/json' }
+      if (apiKey.trim()) {
+        headers['Authorization'] = `Bearer ${apiKey.trim()}`
+      }
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        const status = response.status
+        let detail = ''
+        try {
+          const errJson = await response.json()
+          detail = errJson.detail || errJson.error || JSON.stringify(errJson)
+        } catch {
+          detail = await response.text().catch(() => '')
+        }
+        if (status === 401 || status === 403) {
+          throw new Error(`認証エラー (${status}): APIキーを確認してください。${detail ? '\n' + detail : ''}`)
+        } else if (status === 404) {
+          throw new Error(`エンドポイントが見つかりません (404): URLを確認してください。`)
+        } else if (status >= 500) {
+          throw new Error(`サーバーエラー (${status}): しばらく待ってから再試行してください。${detail ? '\n' + detail : ''}`)
+        } else {
+          throw new Error(`APIエラー (${status}): ${detail || '不明なエラー'}`)
+        }
+      }
+
+      const data = await response.json()
+
+      if (!data.images || data.images.length === 0) {
+        throw new Error('APIから画像が返されませんでした。')
+      }
+
+      const resultBase64 = data.images[0]
+      setResultImage(`data:image/png;base64,${resultBase64}`)
+    } catch (err) {
+      if (err.name === 'TypeError' && err.message === 'Failed to fetch') {
+        setError('接続できませんでした。URLが正しいか、サーバーが起動しているか確認してください。CORSエラーの可能性もあります。')
+      } else {
+        setError(err.message || '画像の生成中にエラーが発生しました。')
+      }
     } finally {
       setIsLoading(false)
     }
@@ -87,6 +161,8 @@ export default function App() {
         <ImageUploader image={image} onImageChange={setImage} />
 
         <PromptInput prompt={prompt} onPromptChange={setPrompt} />
+
+        <ParameterSettings params={params} onParamsChange={setParams} />
 
         <ApiSettings
           apiUrl={apiUrl}
