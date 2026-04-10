@@ -1,16 +1,48 @@
-# React + Vite
+# Gazoumaker
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+スマホブラウザで動く Stable Diffusion img2img 画像変換ツール。
 
-Currently, two official plugins are available:
+## 使い方
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. https://netbankkatsu-maker.github.io/Gazoumaker/ にアクセス
+2. 画像をアップロード
+3. プロンプトを入力（デフォルトあり）
+4. API設定で RunPod の URL を入力
+5. 「画像を生成する」をタップ
 
-## React Compiler
+## A1111 WebUI の CORS 設定
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+ブラウザから直接 API を叩くため、A1111 の起動時に CORS を許可する必要があります。
 
-## Expanding the ESLint configuration
+RunPod テンプレートや起動スクリプトで、以下の引数を追加してください:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+python launch.py --api --cors-allow-origins=*
+```
+
+または特定のオリジンのみ許可する場合:
+
+```bash
+python launch.py --api --cors-allow-origins=https://netbankkatsu-maker.github.io
+```
+
+### RunPod での設定例
+
+RunPod のテンプレート設定で、Docker の起動コマンドまたは `relauncher.py` 等に `--cors-allow-origins=*` を追記します。
+
+## 開発
+
+```bash
+npm install
+npm run dev
+```
+
+## デプロイ
+
+`main` または `claude/mobile-img2img-tool-2gwNg` ブランチへ push すると、GitHub Actions で GitHub Pages に自動デプロイされます。
+
+### GitHub Pages の有効化（初回のみ）
+
+1. リポジトリの Settings > Pages を開く
+2. Source を **GitHub Actions** に変更
+3. 保存
